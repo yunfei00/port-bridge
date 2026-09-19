@@ -1,0 +1,5 @@
+PySide6==6.9.3
+PyVISA==1.16.2
+PyVISA-py==0.8.1
+PyInstaller==6.22.2
+pyinstaller-hooks-contrib==2026.7
