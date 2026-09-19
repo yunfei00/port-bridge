@@ -1,9 +1,13 @@
-name: Windows Build
+name: Windows Build and Release
 on:
   workflow_dispatch:
   pull_request:
   push:
     tags: ["v*"]
+
+permissions:
+  contents: write
+
 jobs:
   modern:
     runs-on: windows-latest
@@ -18,10 +22,29 @@ jobs:
       - run: python -m pytest -q
       - shell: pwsh
         run: powershell -ExecutionPolicy Bypass -File packaging/build_windows.ps1 -Mode Both -SkipInstall
+      - name: Smoke test modern executables
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $diag1 = Join-Path $PWD "modern-onedir.txt"
+          $p1 = Start-Process -FilePath (Resolve-Path "dist/modern/onedir/PortBridge/PortBridge.exe") -ArgumentList @("--diagnostics-file",('"' + $diag1 + '"')) -Wait -PassThru
+          if ($p1.ExitCode -ne 0) { throw "Modern onedir smoke test failed" }
+          if (-not (Select-String -Path $diag1 -Pattern '^status=ok$' -Quiet)) { Get-Content $diag1; throw "Modern onedir diagnostics failed" }
+          $diag2 = Join-Path $PWD "modern-onefile.txt"
+          $p2 = Start-Process -FilePath (Resolve-Path "dist/modern/onefile/PortBridge.exe") -ArgumentList @("--diagnostics-file",('"' + $diag2 + '"')) -Wait -PassThru
+          if ($p2.ExitCode -ne 0) { throw "Modern onefile smoke test failed" }
+          if (-not (Select-String -Path $diag2 -Pattern '^status=ok$' -Quiet)) { Get-Content $diag2; throw "Modern onefile diagnostics failed" }
+      - name: Prepare modern release files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-modern | Out-Null
+          Compress-Archive -Path dist/modern/onedir/PortBridge -DestinationPath release-modern/PortBridge-Windows-x64.zip -Force
+          Copy-Item dist/modern/onefile/PortBridge.exe release-modern/PortBridge-Windows-x64-OneFile.exe
       - uses: actions/upload-artifact@v4
         with:
           name: PortBridge-Modern-Windows-x64
-          path: dist/modern/
+          path: release-modern/*
+
   legacy:
     runs-on: windows-2022
     steps:
@@ -35,7 +58,43 @@ jobs:
       - run: python -m pip install -e .
       - shell: pwsh
         run: powershell -ExecutionPolicy Bypass -File packaging/build_fsw_legacy.ps1 -Mode Both -SkipInstall
+      - name: Smoke test legacy executables
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $diag1 = Join-Path $PWD "legacy-onedir.txt"
+          $p1 = Start-Process -FilePath (Resolve-Path "dist/legacy/onedir/PortBridgeLegacy/PortBridgeLegacy.exe") -ArgumentList @("--diagnostics-file",('"' + $diag1 + '"')) -Wait -PassThru
+          if ($p1.ExitCode -ne 0) { throw "Legacy onedir smoke test failed" }
+          if (-not (Select-String -Path $diag1 -Pattern '^status=ok$' -Quiet)) { Get-Content $diag1; throw "Legacy onedir diagnostics failed" }
+          $diag2 = Join-Path $PWD "legacy-onefile.txt"
+          $p2 = Start-Process -FilePath (Resolve-Path "dist/legacy/onefile/PortBridgeLegacy.exe") -ArgumentList @("--diagnostics-file",('"' + $diag2 + '"')) -Wait -PassThru
+          if ($p2.ExitCode -ne 0) { throw "Legacy onefile smoke test failed" }
+          if (-not (Select-String -Path $diag2 -Pattern '^status=ok$' -Quiet)) { Get-Content $diag2; throw "Legacy onefile diagnostics failed" }
+      - name: Prepare legacy release files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-legacy | Out-Null
+          Compress-Archive -Path dist/legacy/onedir/PortBridgeLegacy -DestinationPath release-legacy/PortBridge-Legacy-Windows-x64.zip -Force
+          Copy-Item dist/legacy/onefile/PortBridgeLegacy.exe release-legacy/PortBridge-Legacy-Windows-x64-OneFile.exe
       - uses: actions/upload-artifact@v4
         with:
           name: PortBridge-Legacy-Windows-x64
-          path: dist/legacy/
+          path: release-legacy/*
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [modern, legacy]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+      - name: Create SHA256 checksums
+        run: |
+          cd release
+          sha256sum * > SHA256SUMS.txt
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" release/* --repo "${{ github.repository }}" --title "PortBridge ${{ github.ref_name }}" --generate-notes
