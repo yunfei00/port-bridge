@@ -1,0 +1,28 @@
+name: Build Legacy Windows
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.8"
+      - name: Install
+        run: |
+          python -m pip install --upgrade "pip<25"
+          python -m pip install -r packaging/requirements-fsw-legacy.txt
+          python -m pip install -e .
+      - name: Diagnostics
+        run: python -m port_bridge.legacy --diagnostics
+      - name: Build onedir
+        run: python -m PyInstaller --noconfirm --clean --distpath dist/legacy/onedir --workpath build/legacy/onedir packaging/port_bridge_fsw_legacy.spec
+      - name: Build onefile
+        run: python -m PyInstaller --noconfirm --clean --distpath dist/legacy/onefile --workpath build/legacy/onefile packaging/port_bridge_fsw_legacy_onefile.spec
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PortBridge-Legacy-Windows-x64
+          path: dist/legacy/
