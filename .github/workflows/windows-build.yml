@@ -1,0 +1,41 @@
+name: Windows Build
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    tags: ["v*"]
+jobs:
+  modern:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          architecture: "x64"
+      - run: python -m pip install -r packaging/requirements-windows-build.txt
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest -q
+      - shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File packaging/build_windows.ps1 -Mode Both -SkipInstall
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PortBridge-Modern-Windows-x64
+          path: dist/modern/
+  legacy:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.8.10"
+          architecture: "x64"
+      - run: python -m pip install --upgrade "pip<25"
+      - run: python -m pip install -r packaging/requirements-fsw-legacy.txt
+      - run: python -m pip install -e .
+      - shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File packaging/build_fsw_legacy.ps1 -Mode Both -SkipInstall
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PortBridge-Legacy-Windows-x64
+          path: dist/legacy/
